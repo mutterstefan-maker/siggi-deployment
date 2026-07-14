@@ -1,0 +1,284 @@
+<!-- ADD THIS TAB TO dashboard.html SIDEBAR NAVIGATION -->
+<button class="tab-btn" data-tab="analytics">
+    📊 Analytics
+</button>
+
+<!-- ADD THIS CONTENT SECTION TO dashboard.html MAIN AREA -->
+<div id="analytics-tab" class="tab-content" style="display:none;">
+    <div class="container">
+        <h2>📊 Website Analytics (chefblick.de)</h2>
+        
+        <div class="filter-section">
+            <label>Zeitraum:</label>
+            <select id="analytics-days" onchange="loadAnalyticsData()">
+                <option value="7">Letzte 7 Tage</option>
+                <option value="14">Letzte 14 Tage</option>
+                <option value="30">Letzte 30 Tage</option>
+            </select>
+        </div>
+
+        <!-- TRAFFIC SUMMARY -->
+        <div class="analytics-section">
+            <h3>Übersicht</h3>
+            <div class="summary-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-users">—</div>
+                    <div class="stat-label">Benutzer</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="total-pageviews">—</div>
+                    <div class="stat-label">Seitenaufrufe</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avg-bounce-rate">—%</div>
+                    <div class="stat-label">Absprungrate (Ø)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avg-duration">—s</div>
+                    <div class="stat-label">Ø Sitzungsdauer</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TOP PAGES -->
+        <div class="analytics-section">
+            <h3>Top Seiten</h3>
+            <table class="analytics-table">
+                <thead>
+                    <tr>
+                        <th>Seite</th>
+                        <th>Aufrufe</th>
+                        <th>Benutzer</th>
+                        <th>Ø Dauer (s)</th>
+                    </tr>
+                </thead>
+                <tbody id="top-pages-body">
+                    <tr><td colspan="4" style="text-align:center;">Lädt...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- TRAFFIC SOURCES -->
+        <div class="analytics-section">
+            <h3>Traffic-Quellen</h3>
+            <table class="analytics-table">
+                <thead>
+                    <tr>
+                        <th>Quelle</th>
+                        <th>Benutzer</th>
+                        <th>Seitenaufrufe</th>
+                        <th>%</th>
+                    </tr>
+                </thead>
+                <tbody id="sources-body">
+                    <tr><td colspan="4" style="text-align:center;">Lädt...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- DAILY CHART -->
+        <div class="analytics-section">
+            <h3>Tägliche Benutzer</h3>
+            <canvas id="daily-chart" style="max-height:300px;"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- ADD THIS CSS TO <style> SECTION -->
+<style>
+.analytics-section {
+    background: #1e1e1e;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+    border: 1px solid #333;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.stat-card {
+    background: #252525;
+    padding: 15px;
+    border-radius: 6px;
+    border-left: 3px solid #0ea5e9;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: #0ea5e9;
+    margin-bottom: 5px;
+}
+
+.stat-label {
+    color: #999;
+    font-size: 12px;
+}
+
+.analytics-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.analytics-table th {
+    background: #252525;
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #333;
+    color: #0ea5e9;
+}
+
+.analytics-table td {
+    padding: 10px;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.analytics-table tr:hover {
+    background: #252525;
+}
+
+.filter-section {
+    margin: 20px 0;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.filter-section select {
+    padding: 8px 12px;
+    background: #252525;
+    color: #fff;
+    border: 1px solid #333;
+    border-radius: 4px;
+}
+</style>
+
+<!-- ADD THIS JAVASCRIPT AT END OF BODY -->
+<script>
+function loadAnalyticsData() {
+    const days = document.getElementById('analytics-days')?.value || 7;
+    
+    // Load summary
+    fetch(`/api/analytics/summary?days=${days}`)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('total-users').textContent = data.total_users.toLocaleString('de-DE');
+            document.getElementById('total-pageviews').textContent = data.total_pageviews.toLocaleString('de-DE');
+            document.getElementById('avg-bounce-rate').textContent = data.avg_bounce_rate.toFixed(1);
+            document.getElementById('avg-duration').textContent = data.avg_session_duration.toFixed(0);
+            
+            // Draw daily chart
+            drawDailyChart(data.daily);
+        })
+        .catch(e => console.error('Analytics summary error:', e));
+    
+    // Load top pages
+    fetch(`/api/analytics/top-pages?days=${days}`)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('top-pages-body');
+            tbody.innerHTML = data.pages.map(p => `
+                <tr>
+                    <td style="font-family:monospace;font-size:12px;">${p.page}</td>
+                    <td>${p.pageviews}</td>
+                    <td>${p.users}</td>
+                    <td>${p.avg_duration.toFixed(1)}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="4">Keine Daten</td></tr>';
+        })
+        .catch(e => console.error('Top pages error:', e));
+    
+    // Load traffic sources
+    fetch(`/api/analytics/sources?days=${days}`)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('sources-body');
+            const total = data.sources.reduce((sum, s) => sum + s.users, 0);
+            tbody.innerHTML = data.sources.map(s => `
+                <tr>
+                    <td>${s.channel}</td>
+                    <td>${s.users}</td>
+                    <td>${s.pageviews}</td>
+                    <td>${((s.users / total) * 100).toFixed(1)}%</td>
+                </tr>
+            `).join('') || '<tr><td colspan="4">Keine Daten</td></tr>';
+        })
+        .catch(e => console.error('Sources error:', e));
+}
+
+function drawDailyChart(daily) {
+    const canvas = document.getElementById('daily-chart');
+    if (!canvas || daily.length === 0) return;
+    
+    const ctx = canvas.getContext('2d');
+    const dates = daily.map(d => d.date.slice(5)); // YYYY-MM-DD -> MM-DD
+    const users = daily.map(d => d.users);
+    
+    // Simple line chart
+    const padding = 40;
+    const width = canvas.width;
+    const height = canvas.height;
+    const chartWidth = width - padding * 2;
+    const chartHeight = height - padding * 2;
+    
+    const maxUsers = Math.max(...users, 1);
+    const pointSpacing = chartWidth / (users.length - 1 || 1);
+    
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#999';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    
+    // Draw axes
+    ctx.strokeStyle = '#333';
+    ctx.beginPath();
+    ctx.moveTo(padding, height - padding);
+    ctx.lineTo(width - padding, height - padding);
+    ctx.stroke();
+    
+    // Draw points and lines
+    ctx.strokeStyle = '#0ea5e9';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    users.forEach((u, i) => {
+        const x = padding + i * pointSpacing;
+        const y = height - padding - (u / maxUsers) * chartHeight;
+        
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+        
+        // Labels
+        if (i % Math.ceil(users.length / 7) === 0) {
+            ctx.fillText(dates[i], x, height - 20);
+        }
+    });
+    
+    ctx.stroke();
+    
+    // Draw points
+    ctx.fillStyle = '#0ea5e9';
+    users.forEach((u, i) => {
+        const x = padding + i * pointSpacing;
+        const y = height - padding - (u / maxUsers) * chartHeight;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+// Load analytics when tab is clicked
+document.addEventListener('DOMContentLoaded', () => {
+    const analyticsBtn = document.querySelector('[data-tab="analytics"]');
+    if (analyticsBtn) {
+        analyticsBtn.addEventListener('click', loadAnalyticsData);
+    }
+});
+</script>

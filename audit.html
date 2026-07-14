@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Website Audit - ChefBlick</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  min-height: 100vh;
+  padding: 40px 20px;
+  color: #fff;
+}
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  background: rgba(255,255,255,0.95);
+  color: #333;
+  border-radius: 16px;
+  padding: 40px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+h1 { font-size: 32px; margin-bottom: 10px; background: linear-gradient(135deg, #0057FF, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+
+.form-group { margin-bottom: 20px; }
+label { display: block; font-weight: 600; margin-bottom: 8px; color: #333; }
+input, textarea, select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: border-color 0.3s;
+  font-family: inherit;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: #0057FF;
+  box-shadow: 0 0 0 3px rgba(0,87,255,0.1);
+}
+
+.action-buttons { display: flex; gap: 10px; margin-top: 30px; flex-wrap: wrap; }
+button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.btn-primary {
+  background: #0057FF;
+  color: white;
+}
+.btn-primary:hover { background: #0045d9; transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,87,255,0.3); }
+.btn-secondary {
+  background: #f0f0f0;
+  color: #333;
+}
+.btn-secondary:hover { background: #ddd; }
+.btn-ghost {
+  background: transparent;
+  color: #0057FF;
+  border: 2px solid #0057FF;
+}
+.btn-ghost:hover { background: rgba(0,87,255,0.1); }
+.btn-danger {
+  background: #ef4444;
+  color: white;
+}
+.btn-danger:hover { background: #dc2626; }
+
+/* Progress */
+.progress-container { margin: 30px 0; display: none; }
+.progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #0057FF, #7c3aed); width: 0%; transition: width 0.3s; }
+.progress-text { font-size: 12px; color: #666; margin-top: 6px; }
+
+/* Results */
+.results { margin-top: 40px; display: none; }
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.score-card {
+  background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+  border-left: 4px solid #0057FF;
+  padding: 16px;
+  border-radius: 8px;
+  text-align: center;
+}
+.score-value { font-size: 32px; font-weight: 700; color: #0057FF; }
+.score-label { font-size: 12px; color: #666; font-weight: 600; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+
+.details-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.details-table th {
+  background: #f5f5f5;
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #ddd;
+}
+.details-table td {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+}
+.details-table tr:last-child td { border-bottom: none; }
+
+/* Download & Send */
+.action-options {
+  background: #f9f9f9;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 20px;
+  display: none;
+}
+.options-group { margin-bottom: 16px; }
+.options-group:last-child { margin-bottom: 0; }
+.options-group label { margin-bottom: 8px; }
+
+/* Status */
+.status-msg {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.status-msg.success { background: #dcfce7; color: #166534; border-left: 4px solid #22c55e; }
+.status-msg.error { background: #fee2e2; color: #991b1b; border-left: 4px solid #ef4444; }
+.status-msg.info { background: #dbeafe; color: #1e40af; border-left: 4px solid #0057FF; }
+
+/* Loading spinner */
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #f0f0f0; border-top-color: #0057FF; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.back-link { color: #0057FF; text-decoration: none; font-weight: 600; margin-bottom: 20px; display: inline-block; }
+.back-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <a href="http://localhost:8080" class="back-link">← Zurück zum Dashboard</a>
+
+  <h1>🔍 Website Audit</h1>
+  <p class="subtitle">Analysiere Deine Website auf Performance, SEO und Sicherheit</p>
+
+  <!-- Input Form -->
+  <div id="input-section">
+    <div class="form-group">
+      <label for="audit-url">Website-URL:</label>
+      <input type="url" id="audit-url" placeholder="https://example.com" value="https://chefblick.de">
+    </div>
+    <div class="action-buttons">
+      <button class="btn-primary" onclick="startAudit()">🔎 Audit starten</button>
+      <button class="btn-secondary" onclick="loadAuditHistory()">📋 History anzeigen</button>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-container" id="progress-container">
+    <div class="progress-bar">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    <div class="progress-text">
+      <span class="spinner"></span>
+      <span id="progress-text">Audit wird durchgeführt...</span>
+    </div>
+  </div>
+
+  <!-- Status Messages -->
+  <div id="status-messages"></div>
+
+  <!-- Results -->
+  <div id="results" class="results">
+    <h2 style="margin-bottom: 20px;">📊 Audit-Ergebnisse</h2>
+    <div class="results-grid" id="scores"></div>
+    <table class="details-table" id="details-table">
+      <thead><tr><th>Eigenschaft</th><th>Wert</th></tr></thead>
+      <tbody id="details-body"></tbody>
+    </table>
+
+    <div class="action-options" id="action-options">
+      <div class="options-group">
+        <label><strong>📥 PDF herunterladen</strong></label>
+        <button class="btn-ghost" onclick="downloadPDF()">PDF speichern</button>
+      </div>
+
+      <div class="options-group">
+        <label for="email-select"><strong>📧 Per E-Mail versenden</strong></label>
+        <select id="email-select" style="margin-bottom:8px">
+          <option value="">-- Kontakt wählen --</option>
+        </select>
+        <button class="btn-primary" onclick="sendViaMail()">E-Mail mit PDF versenden</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentAuditId = null;
+
+async function startAudit() {
+  const url = document.getElementById('audit-url').value.trim();
+  if (!url) { showStatus('Bitte URL eingeben', 'error'); return; }
+
+  document.getElementById('input-section').style.display = 'none';
+  document.getElementById('progress-container').style.display = 'block';
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('status-messages').innerHTML = '';
+
+  try {
+    const resp = await fetch('/api/audit/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await resp.json();
+    if (!data.audit_id) throw new Error('Keine Audit-ID');
+
+    currentAuditId = data.audit_id;
+    pollAuditStatus();
+  } catch(e) {
+    showStatus('Fehler beim Starten: ' + e.message, 'error');
+    document.getElementById('input-section').style.display = 'block';
+    document.getElementById('progress-container').style.display = 'none';
+  }
+}
+
+async function pollAuditStatus() {
+  try {
+    const resp = await fetch(`/api/audit/status/${currentAuditId}`);
+    const data = await resp.json();
+
+    const progress = data.progress || 0;
+    document.getElementById('progress-fill').style.width = progress + '%';
+    document.getElementById('progress-text').textContent = `${data.status}... (${progress}%)`;
+
+    if (data.status === 'complete') {
+      showStatus('✓ Audit abgeschlossen!', 'success');
+      displayResults(data.result);
+      document.getElementById('progress-container').style.display = 'none';
+      document.getElementById('results').style.display = 'block';
+      loadContactsForMail();
+    } else if (data.status === 'error') {
+      showStatus('❌ Audit-Fehler: ' + (data.error || 'Unbekannt'), 'error');
+      document.getElementById('progress-container').style.display = 'none';
+      document.getElementById('input-section').style.display = 'block';
+    } else {
+      setTimeout(pollAuditStatus, 1000);
+    }
+  } catch(e) {
+    showStatus('Polling-Fehler: ' + e.message, 'error');
+    setTimeout(pollAuditStatus, 2000);
+  }
+}
+
+function displayResults(result) {
+  if (!result) return;
+
+  // Scores
+  const scoresHtml = `
+    <div class="score-card">
+      <div class="score-value">${result.performance_score || 0}</div>
+      <div class="score-label">Performance</div>
+    </div>
+    <div class="score-card">
+      <div class="score-value">${result.seo_score || 0}</div>
+      <div class="score-label">SEO</div>
+    </div>
+    <div class="score-card">
+      <div class="score-value">${result.security_score || 0}</div>
+      <div class="score-label">Sicherheit</div>
+    </div>
+  `;
+  document.getElementById('scores').innerHTML = scoresHtml;
+
+  // Details
+  const details = [
+    ['URL', result.url],
+    ['Status', result.status_code || 'N/A'],
+    ['SSL/TLS', result.ssl ? '✓ Aktiv' : '✗ Nicht aktiv'],
+    ['Mobile-Viewport', result.mobile_viewport ? '✓ Vorhanden' : '✗ Nicht vorhanden'],
+    ['Bilder', result.images || 0],
+    ['Links', result.links || 0],
+    ['H1-Tags', result.h1_count || 0],
+    ['Datum', result.timestamp || new Date().toISOString()],
+  ];
+
+  const detailsHtml = details
+    .map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`)
+    .join('');
+  document.getElementById('details-body').innerHTML = detailsHtml;
+
+  document.getElementById('action-options').style.display = 'block';
+}
+
+function downloadPDF() {
+  if (!currentAuditId) return;
+  window.location.href = `/api/audit/pdf/${currentAuditId}`;
+}
+
+async function loadContactsForMail() {
+  try {
+    const settings = await fetch('/api/settings').then(r => r.json());
+    const accounts = settings.accounts || {};
+    const select = document.getElementById('email-select');
+
+    Object.entries(accounts).forEach(([email, data]) => {
+      if (data.active) {
+        const option = document.createElement('option');
+        option.value = email;
+        option.textContent = email;
+        select.appendChild(option);
+      }
+    });
+  } catch(e) {
+    console.warn('Kontakte konnten nicht geladen werden', e);
+  }
+}
+
+async function sendViaMail() {
+  const email = document.getElementById('email-select').value;
+  if (!email) { showStatus('Bitte Kontakt wählen', 'error'); return; }
+  if (!currentAuditId) { showStatus('Keine Audit-ID', 'error'); return; }
+
+  try {
+    const resp = await fetch(`/api/audit/send/${currentAuditId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      showStatus(`✓ PDF an ${email} versendet!`, 'success');
+    } else {
+      showStatus('Fehler: ' + data.error, 'error');
+    }
+  } catch(e) {
+    showStatus('Versand-Fehler: ' + e.message, 'error');
+  }
+}
+
+async function loadAuditHistory() {
+  try {
+    const resp = await fetch('/api/audit/history');
+    const history = await resp.json();
+    if (!history.length) { showStatus('Noch keine Audits vorhanden', 'info'); return; }
+
+    let html = '<h3 style="margin-top:20px">Audit-Verlauf</h3><table class="details-table"><thead><tr><th>URL</th><th>Status</th><th>Datum</th></tr></thead><tbody>';
+    history.forEach(h => {
+      html += `<tr><td>${h.url}</td><td>${h.status}</td><td>${new Date(h.created_at).toLocaleString()}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('status-messages').innerHTML += html;
+  } catch(e) {
+    showStatus('History konnte nicht geladen werden', 'error');
+  }
+}
+
+function showStatus(message, type = 'info') {
+  const container = document.getElementById('status-messages');
+  const div = document.createElement('div');
+  div.className = `status-msg ${type}`;
+  div.textContent = message;
+  container.appendChild(div);
+}
+
+init();
+async function init() {
+  // Optional: Auto-load history on page load
+}
+</script>
+
+</body>
+</html>

@@ -7,3 +7,16 @@ node_modules/
 build/
 out/
 deploy_key
+
+# Flask backend - sensible Daten
+settings.json
+config/.env
+*.db
+__pycache__/
+*.pyc
+audits/
+flyer_pool/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
