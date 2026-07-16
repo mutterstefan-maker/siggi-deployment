@@ -1585,9 +1585,25 @@ function _startJarvisRecognitionSession(SR) {
 
   jarvisRecognition.onresult = (e) => {
     let interim = '';
+    let newFinal = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) _jarvisAccumulatedFinal += e.results[i][0].transcript + ' ';
+      if (e.results[i].isFinal) newFinal += e.results[i][0].transcript + ' ';
       else interim += e.results[i][0].transcript;
+    }
+    newFinal = newFinal.trim();
+    if (newFinal) {
+      const acc = _jarvisAccumulatedFinal.trim();
+      if (!acc || newFinal === acc) {
+        _jarvisAccumulatedFinal = newFinal + ' ';
+      } else if (newFinal.startsWith(acc)) {
+        // Android liefert nach einem Neustart oft den gesamten bisherigen Satz erneut
+        // plus ein paar neue Wörter -> ersetzen statt anhängen, sonst dopplet/verdreifacht sich der Text.
+        _jarvisAccumulatedFinal = newFinal + ' ';
+      } else if (acc.startsWith(newFinal)) {
+        // schon enthalten -> ignorieren
+      } else {
+        _jarvisAccumulatedFinal += newFinal + ' ';
+      }
     }
     window._finalTranscriptGlobal = _jarvisAccumulatedFinal.trim();
     const inp = document.getElementById('jarvis-input');
@@ -1597,7 +1613,9 @@ function _startJarvisRecognitionSession(SR) {
   jarvisRecognition.onend = () => {
     if (!_jarvisManualStop) {
       // Session ist von selbst ausgelaufen (z.B. kurze Sprechpause) – nahtlos weiterhören.
-      _startJarvisRecognitionSession(SR);
+      // Kleine Verzögerung, damit sich alte und neue Session nicht überlappen
+      // (Android liefert sonst dieselbe Audio-Passage doppelt).
+      setTimeout(() => _startJarvisRecognitionSession(SR), 250);
       return;
     }
     jarvisListening = false;
