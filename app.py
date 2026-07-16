@@ -22,6 +22,10 @@ from email.header import decode_header
 import imaplib
 import time
 from dotenv import load_dotenv
+import memory_engine
+import gsc_engine
+import ga4_engine
+import solar_engine
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', '.env'))
 
@@ -32,6 +36,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
 DB_PATH = os.path.join(BASE_DIR, 'mails.db')
 AUDIT_RESULTS_PATH = os.path.join(BASE_DIR, 'audit_results')
+SIGGI_SEND_ACCOUNT = 'team@chefblick.de'  # Siggi verschickt eigenständig geschriebene Mails immer von diesem Postfach
 
 # ─── Login-Schutz ───────────────────────────────────────────────────
 LOGIN_USERNAME = os.environ.get('LOGIN_USERNAME')
@@ -130,10 +135,26 @@ def init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )''')
 
+        # Mail-Entwürfe Tabelle (Freigabe-Workflow für selbst geschriebene Mails)
+        c.execute('''CREATE TABLE IF NOT EXISTS mail_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            to_addr TEXT,
+            subject TEXT,
+            body TEXT,
+            account TEXT,
+            status TEXT DEFAULT 'pending',
+            edited INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            decided_at DATETIME
+        )''')
+
         conn.commit()
         conn.close()
     except:
         pass
+
+init_db()
+memory_engine.init_memory_db()
 
 def query_db(query, args=(), one=False):
     try:
@@ -534,6 +555,264 @@ def instagram_queue():
 def instagram_history():
     return jsonify([])
 
+SIGGI_TOOLS = [
+    {
+        'name': 'merke_dir',
+        'description': 'Speichert eine Information dauerhaft in deinem Gedächtnis, damit du sie in Zukunft immer kennst (z.B. Fakten, Vorlieben, laufende Projekte, Regeln).',
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'inhalt': {'type': 'string', 'description': 'Was du dir merken sollst.'},
+                'kategorie': {'type': 'string', 'description': 'Optionale Kategorie, z.B. "projekt", "regel", "fakt".'}
+            },
+            'required': ['inhalt']
+        }
+    },
+    {
+        'name': 'vergiss',
+        'description': 'Löscht einen bestehenden Gedächtnis-Eintrag anhand seiner ID.',
+        'input_schema': {
+            'type': 'object',
+            'properties': {'id': {'type': 'integer', 'description': 'ID des Eintrags aus deinem Gedächtnis.'}},
+            'required': ['id']
+        }
+    },
+    {
+        'name': 'setze_erinnerung',
+        'description': 'Setzt eine Erinnerung, die zu einer bestimmten Zeit als Windows-Benachrichtigung ausgelöst wird.',
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'nachricht': {'type': 'string', 'description': 'Woran erinnert werden soll.'},
+                'wann': {'type': 'string', 'description': 'Natürlichsprachliche Zeitangabe auf Deutsch, z.B. "in 30 minuten", "morgen um 08:00", "heute abend".'}
+            },
+            'required': ['nachricht', 'wann']
+        }
+    },
+    {
+        'name': 'todo_hinzufuegen',
+        'description': 'Fügt der Todo-Liste einen neuen Eintrag hinzu.',
+        'input_schema': {
+            'type': 'object',
+            'properties': {'text': {'type': 'string'}},
+            'required': ['text']
+        }
+    },
+    {
+        'name': 'sende_mail',
+        'description': (
+            f'Erstellt eine neue E-Mail, die immer von {SIGGI_SEND_ACCOUNT} verschickt wird. '
+            'Solange der Autopilot noch nicht freigeschaltet ist, wird die Mail NICHT direkt verschickt, '
+            'sondern als Entwurf gespeichert und wartet auf manuelle Freigabe von Stefan im Dashboard. '
+            'Nur aufrufen, wenn Stefan im Chat ausdrücklich sagt, dass eine Mail verschickt werden soll '
+            '(z.B. "schreib X eine Mail dass..."). Bei fehlenden Angaben (Empfänger, Inhalt) nachfragen statt zu raten.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'empfaenger': {'type': 'string', 'description': 'E-Mail-Adresse des Empfängers.'},
+                'betreff': {'type': 'string', 'description': 'Betreff der Mail.'},
+                'text': {'type': 'string', 'description': 'Inhalt der Mail.'}
+            },
+            'required': ['empfaenger', 'betreff', 'text']
+        }
+    }
+]
+
+MAIL_TRUST_THRESHOLD_DEFAULT = 15  # so viele Freigaben/Korrekturen bis der Autopilot scharf geschaltet wird
+
+
+def get_mail_trust_status():
+    settings = load_settings()
+    threshold = settings.get('mail_trust_threshold', MAIL_TRUST_THRESHOLD_DEFAULT)
+    clean = settings.get('mail_trust_approved_clean', 0)
+    edited = settings.get('mail_trust_approved_edited', 0)
+    rejected = settings.get('mail_trust_rejected', 0)
+    count = clean + edited + rejected
+    enabled = settings.get('mail_auto_send_enabled', False)
+    quality_rate = round((clean / count) * 100) if count else 0
+    return {
+        'count': count,
+        'threshold': threshold,
+        'auto_send_enabled': enabled,
+        'approved_clean': clean,
+        'approved_edited': edited,
+        'rejected': rejected,
+        'quality_rate': quality_rate
+    }
+
+
+def register_mail_decision(kind):
+    """Zählt eine Freigabe/Korrektur/Ablehnung auf die Vertrauens-Quote an und schaltet
+    bei Erreichen der Schwelle den Autopilot (automatisches Versenden ohne Freigabe) frei.
+    kind: 'approved_clean' | 'approved_edited' | 'rejected'"""
+    settings = load_settings()
+    threshold = settings.get('mail_trust_threshold', MAIL_TRUST_THRESHOLD_DEFAULT)
+
+    key = f'mail_trust_{kind}'
+    settings[key] = settings.get(key, 0) + 1
+
+    total = (
+        settings.get('mail_trust_approved_clean', 0)
+        + settings.get('mail_trust_approved_edited', 0)
+        + settings.get('mail_trust_rejected', 0)
+    )
+    if total >= threshold:
+        settings['mail_auto_send_enabled'] = True
+    save_settings(settings)
+    return settings.get('mail_auto_send_enabled', False)
+
+
+def create_mail_draft(to_addr, subject, body):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        'INSERT INTO mail_drafts (to_addr, subject, body, account, status) VALUES (?, ?, ?, ?, ?)',
+        (to_addr, subject, body, SIGGI_SEND_ACCOUNT, 'pending')
+    )
+    draft_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return draft_id
+
+
+def send_new_mail(to_addr, subject, body, from_account=None):
+    """Verschickt eine neue E-Mail über ein konfiguriertes Postfach.
+    Ignoriert from_account, wenn es nicht SIGGI_SEND_ACCOUNT entspricht - Siggis Mails
+    gehen immer von diesem einen Postfach raus, unabhängig davon was übergeben wird."""
+    settings = load_settings()
+    accounts = settings.get('accounts', {})
+    if not accounts:
+        return 'Kein E-Mail-Konto konfiguriert.'
+
+    if SIGGI_SEND_ACCOUNT in accounts:
+        account_addr, account = SIGGI_SEND_ACCOUNT, accounts[SIGGI_SEND_ACCOUNT]
+    elif from_account and from_account in accounts:
+        account_addr, account = from_account, accounts[from_account]
+    else:
+        active = [(addr, cfg) for addr, cfg in accounts.items() if cfg.get('active')]
+        if not active:
+            return f'Postfach {SIGGI_SEND_ACCOUNT} ist nicht konfiguriert.'
+        account_addr, account = active[0]
+
+    msg = MIMEMultipart()
+    msg['From'] = account_addr
+    msg['To'] = to_addr
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+    with smtplib.SMTP(account.get('smtp_server', 'smtp.ionos.de'), account.get('smtp_port', 587)) as server:
+        server.starttls()
+        server.login(account_addr, account.get('password', ''))
+        server.send_message(msg)
+
+    return f"Mail an {to_addr} von {account_addr} verschickt."
+
+
+def run_siggi_tool(name, tool_input):
+    """Führt ein von SIGGI aufgerufenes Tool aus und gibt das Ergebnis als String zurück."""
+    try:
+        if name == 'merke_dir':
+            memory_engine.save_memory(tool_input['inhalt'], tool_input.get('kategorie', 'general'))
+            return f"Gemerkt: {tool_input['inhalt']}"
+
+        if name == 'vergiss':
+            memory_engine.delete_memory(tool_input['id'])
+            return f"Eintrag {tool_input['id']} gelöscht."
+
+        if name == 'setze_erinnerung':
+            remind_at = memory_engine.parse_reminder_time(tool_input['wann'])
+            if not remind_at:
+                return f"Konnte die Zeitangabe '{tool_input['wann']}' nicht verstehen."
+            memory_engine.save_reminder(tool_input['nachricht'], remind_at.isoformat())
+            return f"Erinnerung gesetzt: {tool_input['nachricht']} um {remind_at.strftime('%d.%m.%Y %H:%M')}"
+
+        if name == 'todo_hinzufuegen':
+            settings = load_settings()
+            settings.setdefault('daily_todos', []).append(tool_input['text'])
+            save_settings(settings)
+            return f"Todo hinzugefügt: {tool_input['text']}"
+
+        if name == 'sende_mail':
+            trust = get_mail_trust_status()
+            if trust['auto_send_enabled']:
+                return send_new_mail(
+                    tool_input['empfaenger'],
+                    tool_input['betreff'],
+                    tool_input['text']
+                )
+            draft_id = create_mail_draft(
+                tool_input['empfaenger'],
+                tool_input['betreff'],
+                tool_input['text']
+            )
+            return (
+                f"Entwurf #{draft_id} an {tool_input['empfaenger']} erstellt und wartet auf deine Freigabe im Dashboard "
+                f"(noch {max(trust['threshold'] - trust['count'], 0)} Freigaben bis der Autopilot scharf geschaltet wird)."
+            )
+
+        return f"Unbekanntes Tool: {name}"
+    except Exception as e:
+        return f"Fehler beim Ausführen von {name}: {e}"
+
+
+@app.route('/api/mail-drafts')
+def list_mail_drafts():
+    drafts = query_db("SELECT * FROM mail_drafts WHERE status='pending' ORDER BY created_at DESC")
+    return jsonify({'drafts': drafts, 'trust': get_mail_trust_status()})
+
+
+@app.route('/api/mail-drafts/<int:draft_id>/edit', methods=['POST'])
+def edit_mail_draft(draft_id):
+    draft = query_db('SELECT * FROM mail_drafts WHERE id=?', (draft_id,), one=True)
+    if not draft or draft['status'] != 'pending':
+        return jsonify({'error': 'Entwurf nicht gefunden oder bereits entschieden'}), 404
+
+    data = request.get_json() or {}
+    to_addr = data.get('to_addr', draft['to_addr'])
+    subject = data.get('subject', draft['subject'])
+    body = data.get('body', draft['body'])
+
+    # Nur als "editiert" werten, wenn sich am ursprünglichen KI-Text wirklich etwas geändert hat -
+    # sonst würde jede Freigabe fälschlich als Korrektur in die Qualitäts-Quote einfließen.
+    changed = (to_addr != draft['to_addr']) or (subject != draft['subject']) or (body != draft['body'])
+    edited_flag = 1 if (changed or draft['edited']) else 0
+
+    execute_db(
+        'UPDATE mail_drafts SET to_addr=?, subject=?, body=?, edited=? WHERE id=?',
+        (to_addr, subject, body, edited_flag, draft_id)
+    )
+    return jsonify({'success': True, 'changed': changed})
+
+
+@app.route('/api/mail-drafts/<int:draft_id>/approve', methods=['POST'])
+def approve_mail_draft(draft_id):
+    draft = query_db('SELECT * FROM mail_drafts WHERE id=?', (draft_id,), one=True)
+    if not draft or draft['status'] != 'pending':
+        return jsonify({'error': 'Entwurf nicht gefunden oder bereits entschieden'}), 404
+
+    try:
+        result = send_new_mail(draft['to_addr'], draft['subject'], draft['body'], draft['account'] or None)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    execute_db("UPDATE mail_drafts SET status='sent', decided_at=datetime('now') WHERE id=?", (draft_id,))
+    kind = 'approved_edited' if draft['edited'] else 'approved_clean'
+    auto_send_enabled = register_mail_decision(kind)
+    return jsonify({'success': True, 'message': result, 'trust': get_mail_trust_status(), 'auto_send_enabled': auto_send_enabled})
+
+
+@app.route('/api/mail-drafts/<int:draft_id>/reject', methods=['POST'])
+def reject_mail_draft(draft_id):
+    draft = query_db('SELECT * FROM mail_drafts WHERE id=?', (draft_id,), one=True)
+    if not draft or draft['status'] != 'pending':
+        return jsonify({'error': 'Entwurf nicht gefunden oder bereits entschieden'}), 404
+
+    execute_db("UPDATE mail_drafts SET status='rejected', decided_at=datetime('now') WHERE id=?", (draft_id,))
+    register_mail_decision('rejected')
+    return jsonify({'success': True, 'trust': get_mail_trust_status()})
+
+
 @app.route('/api/jarvis/chat', methods=['POST'])
 def jarvis_chat():
     import requests
@@ -552,49 +831,85 @@ def jarvis_chat():
 
         system_prompt = settings.get('ai_character', 'Du bist SIGGI')
         system_prompt += f"\n\nAKTUELL: {inbox_count} ungelesene Mails\n"
-        system_prompt += get_instructions()  # Wichtige Anweisungen
+        system_prompt += get_instructions()  # Wichtige Anweisungen (Chat-Regex)
+        system_prompt += "\n" + memory_engine.get_memory_context()  # Dauerhaftes Gedächtnis
+        system_prompt += "\n" + memory_engine.get_upcoming_reminders()
+        system_prompt += "\n" + gsc_engine.get_gsc_context()  # Google Search Console
+        system_prompt += "\n" + ga4_engine.get_ga4_context()  # Google Analytics
+        system_prompt += "\n" + solar_engine.get_solar_context()  # Balkonkraftwerk
         system_prompt += get_chat_context(10)  # Letzte 10 Gespräche
-        system_prompt += "\nANWEISUNG: Keine Signatur! Antworte direkt."
-
-        response = requests.post(
-            'https://api.anthropic.com/v1/messages',
-            headers={
-                'Content-Type': 'application/json',
-                'x-api-key': api_key,
-                'anthropic-version': '2023-06-01'
-            },
-            json={
-                'model': 'claude-opus-4-1-20250805',
-                'max_tokens': 300,
-                'system': system_prompt,
-                'messages': [{'role': 'user', 'content': message}]
-            },
-            timeout=10
+        system_prompt += (
+            "\nANWEISUNG: Keine Signatur! Antworte direkt. "
+            "Nutze die verfügbaren Tools proaktiv, wenn Stefan dir etwas zum Merken, Vergessen, "
+            "Erinnern oder als Todo sagt - frag nicht erst nach, sondern handle direkt."
         )
 
-        if response.status_code == 200:
+        headers = {
+            'Content-Type': 'application/json',
+            'x-api-key': api_key,
+            'anthropic-version': '2023-06-01'
+        }
+        messages = [{'role': 'user', 'content': message}]
+
+        # Tool-Use-Loop: SIGGI darf mehrfach Tools aufrufen bevor er final antwortet
+        reply = ''
+        for _ in range(5):
+            response = requests.post(
+                'https://api.anthropic.com/v1/messages',
+                headers=headers,
+                json={
+                    'model': 'claude-opus-4-1-20250805',
+                    'max_tokens': 400,
+                    'system': system_prompt,
+                    'tools': SIGGI_TOOLS,
+                    'messages': messages
+                },
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                return jsonify({'reply': 'Interessante Frage!'})
+
             result = response.json()
-            reply = result['content'][0]['text'].strip()
+            content_blocks = result.get('content', [])
+            messages.append({'role': 'assistant', 'content': content_blocks})
 
-            # Entferne ALLE Varianten der Signatur
-            for sig in [
-                'Diese Nachricht wurde von SIGGI (KI) verfasst',
-                'Diese Nachricht wurde von SIGGI',
-                'Stefan meldet sich persönlich wenn nötig',
-                '(KI) verfasst',
-                '*Diese Nachricht',
-                'persönlich wenn nötig*'
-            ]:
-                reply = reply.replace(sig, '')
+            if result.get('stop_reason') == 'tool_use':
+                tool_results = []
+                for block in content_blocks:
+                    if block.get('type') == 'tool_use':
+                        output = run_siggi_tool(block['name'], block.get('input', {}))
+                        tool_results.append({
+                            'type': 'tool_result',
+                            'tool_use_id': block['id'],
+                            'content': output
+                        })
+                messages.append({'role': 'user', 'content': tool_results})
+                continue
 
-            reply = '\n'.join([l for l in reply.split('\n') if l.strip()])  # Leere Zeilen weg
-            reply = reply.strip()
+            reply = ''.join(b.get('text', '') for b in content_blocks if b.get('type') == 'text').strip()
+            break
 
-            # Speichere SAUBERE Version in Gedächtnis
-            save_chat_memory(message, reply)
-            return jsonify({'reply': reply})
-        else:
-            return jsonify({'reply': 'Interessante Frage!'})
+        if not reply:
+            reply = 'Erledigt!'
+
+        # Entferne ALLE Varianten der Signatur
+        for sig in [
+            'Diese Nachricht wurde von SIGGI (KI) verfasst',
+            'Diese Nachricht wurde von SIGGI',
+            'Stefan meldet sich persönlich wenn nötig',
+            '(KI) verfasst',
+            '*Diese Nachricht',
+            'persönlich wenn nötig*'
+        ]:
+            reply = reply.replace(sig, '')
+
+        reply = '\n'.join([l for l in reply.split('\n') if l.strip()])  # Leere Zeilen weg
+        reply = reply.strip()
+
+        # Speichere SAUBERE Version in Gedächtnis
+        save_chat_memory(message, reply)
+        return jsonify({'reply': reply})
     except Exception as e:
         return jsonify({'reply': f'Fehler: {str(e)[:50]}'})
 
@@ -896,5 +1211,19 @@ if __name__ == '__main__':
     mail_thread = threading.Thread(target=mail_fetch_loop, daemon=True)
     mail_thread.start()
     print("Mail-Abruf im Hintergrund aktiv!")
+
+    # Starte Erinnerungs-Loop im Hintergrund (Windows-Toast)
+    def reminder_loop():
+        while True:
+            try:
+                memory_engine.check_and_fire_reminders()
+                memory_engine.run_proactive_checks()
+            except Exception as e:
+                print(f'[Reminder] Loop-Fehler: {e}')
+            time.sleep(60)
+
+    reminder_thread = threading.Thread(target=reminder_loop, daemon=True)
+    reminder_thread.start()
+    print("Erinnerungs-Loop im Hintergrund aktiv!")
     print("=" * 50)
     app.run(port=8080, debug=False)

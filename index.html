@@ -409,6 +409,8 @@ input:checked + .slider:before { transform: translateX(16px); }
 .gap-response { font-size: 12px; color: var(--text2); }
 
 
+.stat-grid { display: grid; min-width: 0; }
+
 .ig-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -505,9 +507,10 @@ input:checked + .slider:before { transform: translateX(16px); }
   .sidebar-overlay.open { display: block; }
   .hamburger { display: flex; }
   .main { width: 100vw; }
-  .topbar { padding: 0 12px; gap: 8px; }
+  .topbar { padding: 8px 12px; gap: 8px; height: auto; min-height: 56px; flex-wrap: wrap; }
   .topbar h2 { font-size: 13px; }
-  #search-input { max-width: 140px !important; font-size: 11px !important; }
+  #search-input { flex: 1 1 100% !important; max-width: 100% !important; font-size: 12px !important; order: 3; }
+  .topbar .btn { font-size: 11px; padding: 6px 10px; }
   .mail-list { width: 100% !important; }
   .mail-detail { display: none !important; }
   .mail-list.hide { display: none !important; }
@@ -515,6 +518,13 @@ input:checked + .slider:before { transform: translateX(16px); }
   .content { flex-direction: column; }
   .settings-panel { padding: 16px; }
   .settings-section { padding: 14px; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  [style*="grid-template-columns:1fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns:1fr 2fr"],
+  [style*="grid-template-columns: 1fr 2fr"] {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 /* ── Loading ── */
@@ -811,6 +821,10 @@ input:checked + .slider:before { transform: translateX(16px); }
     <div class="nav-item" data-view="jarvis">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/><path d="M3.6 9h.01M3.6 15h.01M20.4 9h.01M20.4 15h.01"/></svg></span> SIGGI
     </div>
+    <div class="nav-item" data-view="mail_drafts">
+      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg></span> Mail-Entwürfe
+      <span class="badge warn" id="badge-mail_drafts" style="display:none">0</span>
+    </div>
     <div class="nav-item" data-view="contacts">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span> Kontakte
       <span class="badge" id="badge-contacts" style="background:var(--accent2)"></span>
@@ -899,7 +913,8 @@ const VIEW_TITLES = {
   instagram: 'Instagram Marketing',
   audit: 'Website Audit',
   jarvis: 'SIGGI',
-  contacts: 'Kontakte / CRM'
+  contacts: 'Kontakte / CRM',
+  mail_drafts: 'Mail-Entwürfe'
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────
@@ -953,6 +968,10 @@ async function showView(view) {
     renderContacts();
     return;
   }
+  if (view === 'mail_drafts') {
+    renderMailDrafts();
+    return;
+  }
   // spam handled by renderMailView
 
   renderMailView(view);
@@ -986,7 +1005,7 @@ async function renderMailView(view) {
 }
 
 function mailItemHTML(m, view) {
-  const from = view === 'sent' ? `An: ${m.to_addr}` : cleanFrom(m.from_addr || '');
+  const from = view === 'sent' ? `An: ${cleanFrom(m.to_addr || m.from_addr || '')}` : cleanFrom(m.from_addr || '');
   const subject = m.subject || '(Kein Betreff)';
   const preview = (m.body || m.ai_reply || '').replace(/\n/g, ' ').substring(0, 80);
   const date = formatDate(m.date || m.sent_at || m.created_at);
@@ -1102,7 +1121,7 @@ function renderSentDetail(m, container) {
     <div class="detail-header">
       <div class="detail-subject">${escHtml(m.subject || '')}</div>
       <div class="detail-meta">
-        <span>📤 An: ${escHtml(m.to_addr || '')}</span>
+        <span>📤 An: ${escHtml(m.to_addr || m.from_addr || '')}</span>
         <span>📅 ${formatDate(m.sent_at)}</span>
         <span>📧 Von: ${escHtml(m.account || '')}</span>
       </div>
@@ -1513,6 +1532,7 @@ function toggleMic() {
 
   if (jarvisListening) {
     // Zweiter Klick: aufnehmen stoppen und Text senden
+    _jarvisManualStop = true;
     if (jarvisRecognition) jarvisRecognition.stop();
     setTimeout(() => {
       const inp = document.getElementById('jarvis-input');
@@ -1529,23 +1549,32 @@ function toggleMic() {
   }
 }
 
+let _jarvisAccumulatedFinal = '';
+let _jarvisManualStop = false;
+
 function startMic() {
   if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
     jarvisSay('Leider unterstützt dieser Browser keine Spracheingabe, Mutti. Bitte Chrome oder Edge nutzen.');
     return;
   }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  _jarvisAccumulatedFinal = '';
+  window._finalTranscriptGlobal = '';
+  _jarvisManualStop = false;
+  _startJarvisRecognitionSession(SR);
+}
+
+function _startJarvisRecognitionSession(SR) {
   jarvisRecognition = new SR();
   jarvisRecognition.lang = 'de-DE';
-  jarvisRecognition.continuous = true;
+  // continuous:true verursacht auf Android Chrome interne Neustarts, die bereits
+  // erkannten Text erneut liefern (Grund für sich wiederholende Sätze).
+  // Stattdessen: kurze Sessions, die bei onend automatisch neu gestartet werden.
+  jarvisRecognition.continuous = false;
   jarvisRecognition.interimResults = true;
-
-  let _finalTranscript = '';
 
   jarvisRecognition.onstart = () => {
     jarvisListening = true;
-    _finalTranscript = '';
-    window._finalTranscriptGlobal = '';
     document.getElementById('jarvis-mic')?.classList.add('active');
     if (jarvisOrb) jarvisOrb.classList.add('listening');
     setJarvisStatus('HÖRE ZU...');
@@ -1555,18 +1584,22 @@ function startMic() {
   };
 
   jarvisRecognition.onresult = (e) => {
-    _finalTranscript = '';
     let interim = '';
-    for (let i = 0; i < e.results.length; i++) {
-      if (e.results[i].isFinal) _finalTranscript += e.results[i][0].transcript + ' ';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) _jarvisAccumulatedFinal += e.results[i][0].transcript + ' ';
       else interim += e.results[i][0].transcript;
     }
-    window._finalTranscriptGlobal = _finalTranscript.trim();
+    window._finalTranscriptGlobal = _jarvisAccumulatedFinal.trim();
     const inp = document.getElementById('jarvis-input');
-    if (inp) inp.value = (_finalTranscript + interim).trim();
+    if (inp) inp.value = (_jarvisAccumulatedFinal + interim).trim();
   };
 
   jarvisRecognition.onend = () => {
+    if (!_jarvisManualStop) {
+      // Session ist von selbst ausgelaufen (z.B. kurze Sprechpause) – nahtlos weiterhören.
+      _startJarvisRecognitionSession(SR);
+      return;
+    }
     jarvisListening = false;
     document.getElementById('jarvis-mic')?.classList.remove('active');
     if (jarvisOrb) jarvisOrb.classList.remove('listening');
@@ -1576,12 +1609,17 @@ function startMic() {
   };
 
   jarvisRecognition.onerror = (e) => {
+    console.log('[Mic] Fehler:', e.error);
+    if (e.error === 'no-speech' || e.error === 'aborted') {
+      // Kein Grund zum Abbrechen – onend kümmert sich um den nahtlosen Neustart.
+      return;
+    }
+    _jarvisManualStop = true;
     jarvisListening = false;
     document.getElementById('jarvis-mic')?.classList.remove('active');
     if (jarvisOrb) { jarvisOrb.classList.remove('listening'); jarvisOrb.classList.remove('speaking'); }
     const hint = document.getElementById('jarvis-mic-hint');
     if (hint) hint.textContent = 'TIPPEN ZUM SPRECHEN';
-    console.log('[Mic] Fehler:', e.error);
     if (e.error === 'not-allowed') {
       setJarvisStatus('MIKROFON BLOCKIERT');
       jarvisSay('Mutti, das Mikrofon ist blockiert. Oben links auf das Schloss-Symbol klicken.');
@@ -1597,6 +1635,7 @@ function startMic() {
 }
 
 function stopMic() {
+  _jarvisManualStop = true;
   if (jarvisRecognition) jarvisRecognition.stop();
 }
 
@@ -2894,7 +2933,7 @@ async function renderStats() {
 
   content.innerHTML = `
     <div class="settings-panel">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px">
+      <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px">
         ${statCard('📥', 'Posteingang', totalInbox, 'var(--accent)')}
         ${statCard('📞', 'Rückrufe', totalCallbacks, 'var(--warning)')}
         ${statCard('🧾', 'Rechnungen', totalInvoices, 'var(--accent2)')}
@@ -2913,7 +2952,7 @@ async function renderStats() {
           <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:12px">
             <div>
               <div style="font-weight:700;color:var(--text)">${escHtml(s.subject || '')}</div>
-              <div style="color:var(--text2)">An: ${escHtml(s.to_addr || '')}</div>
+              <div style="color:var(--text2)">An: ${escHtml(s.to_addr || s.from_addr || '')}</div>
             </div>
             <div style="color:var(--text3);font-family:var(--font-mono)">${formatDate(s.sent_at)}</div>
           </div>
@@ -2926,7 +2965,7 @@ async function renderStats() {
           <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:12px">
             <div>
               <div style="font-weight:700;color:var(--text)">${escHtml(m.subject || '(kein Betreff)')}</div>
-              <div style="color:var(--text2)">An: ${escHtml(m.to_addr || '')}</div>
+              <div style="color:var(--text2)">An: ${escHtml(m.to_addr || m.from_addr || '')}</div>
             </div>
             <div style="color:var(--text3);font-family:var(--font-mono)">${formatDate(m.sent_at)}</div>
           </div>
@@ -2937,10 +2976,10 @@ async function renderStats() {
 }
 
 function statCard(icon, label, value, color) {
-  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center">
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;min-width:0">
     <div style="font-size:28px;margin-bottom:8px">${icon}</div>
     <div style="font-size:26px;font-weight:800;color:${color};font-family:var(--font-mono)">${value}</div>
-    <div style="font-size:11px;color:var(--text2);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">${label}</div>
+    <div style="font-size:11px;color:var(--text2);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;overflow-wrap:break-word">${label}</div>
   </div>`;
 }
 
@@ -3192,6 +3231,113 @@ function setTheme(theme) {
   apiFetch('/api/settings', 'POST', { theme });
 }
 
+// ── Mail-Entwürfe (Freigabe-Workflow) ───────────────────────────────────────
+
+async function renderMailDrafts() {
+  const content = document.getElementById('main-content');
+  content.style.cssText = 'display:block;overflow-y:auto;flex:1;height:calc(100vh - 56px);padding:0';
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+
+  const data = await apiFetch('/api/mail-drafts');
+  const drafts = data?.drafts || [];
+  const trust = data?.trust || { count: 0, threshold: 15, auto_send_enabled: false, approved_clean: 0, approved_edited: 0, rejected: 0, quality_rate: 0 };
+  const pct = Math.min(100, Math.round((trust.count / trust.threshold) * 100));
+  const qualityColor = trust.quality_rate >= 80 ? 'var(--success)' : trust.quality_rate >= 50 ? 'var(--warning)' : 'var(--danger)';
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      <div class="settings-section">
+        <h3>🤖 Autopilot-Status</h3>
+        ${trust.auto_send_enabled ? `
+          <div style="color:var(--success);font-size:13px;font-weight:700">✓ Autopilot aktiv — SIGGI verschickt eigene Mails direkt, ohne Freigabe.</div>
+        ` : `
+          <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
+            SIGGI legt neue Mails vorerst nur als Entwurf an. Jede Freigabe, Korrektur oder Ablehnung zählt auf die Quote –
+            bei ${trust.threshold} entschiedenen Entwürfen schaltet sich der Autopilot automatisch frei.
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;height:10px;overflow:hidden;margin-bottom:6px">
+            <div style="background:var(--accent);height:100%;width:${pct}%"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">${trust.count} / ${trust.threshold} entschieden</div>
+        `}
+      </div>
+
+      <div class="settings-section">
+        <h3>📊 Qualität bisheriger Entwürfe</h3>
+        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+          ${statCard('✓', 'Sauber freigegeben', trust.approved_clean, 'var(--success)')}
+          ${statCard('✎', 'Musste korrigiert werden', trust.approved_edited, 'var(--warning)')}
+          ${statCard('✗', 'Verworfen', trust.rejected, 'var(--danger)')}
+          ${statCard('%', 'Trefferquote', trust.quality_rate + '%', qualityColor)}
+        </div>
+        <div style="font-size:11px;color:var(--text3)">
+          Trefferquote = Anteil der Entwürfe, die du ohne jede Änderung freigegeben hast. Nur unveränderte Freigaben zählen als "sauber" –
+          Entwürfe, die du vor dem Senden bearbeitet hast, fließen als Korrektur ein.
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>✉️ Offene Entwürfe (${drafts.length})</h3>
+        <div id="drafts-list">
+          ${drafts.length ? drafts.map(draftHTML).join('') : '<div style="color:var(--text3);font-size:12px">Keine offenen Entwürfe.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function draftHTML(d) {
+  return `
+    <div class="settings-section" id="draft-${d.id}" style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-bottom:8px">
+        Entwurf #${d.id} · von ${escHtml(d.account || 'team@chefblick.de')} · ${formatDate(d.created_at)}
+      </div>
+      <label style="font-size:11px;color:var(--text2)">AN</label>
+      <input type="email" id="draft-to-${d.id}" value="${escHtml(d.to_addr)}" style="width:100%;margin:4px 0 8px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--font)">
+      <label style="font-size:11px;color:var(--text2)">BETREFF</label>
+      <input type="text" id="draft-subject-${d.id}" value="${escHtml(d.subject)}" style="width:100%;margin:4px 0 8px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--font)">
+      <label style="font-size:11px;color:var(--text2)">TEXT</label>
+      <textarea id="draft-body-${d.id}" style="width:100%;min-height:100px;margin:4px 0 10px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--font)">${escHtml(d.body)}</textarea>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="approveDraft(${d.id})">✓ Freigeben &amp; senden</button>
+        <button class="btn" onclick="saveDraftEdit(${d.id})">💾 Änderung speichern</button>
+        <button class="btn btn-danger" onclick="rejectDraft(${d.id})">✗ Verwerfen</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveDraftEdit(id) {
+  const to_addr = document.getElementById(`draft-to-${id}`).value.trim();
+  const subject = document.getElementById(`draft-subject-${id}`).value.trim();
+  const body = document.getElementById(`draft-body-${id}`).value;
+  const res = await apiFetch(`/api/mail-drafts/${id}/edit`, 'POST', { to_addr, subject, body });
+  if (res?.success) showToast('Entwurf gespeichert'); else showToast('Fehler beim Speichern', 'error');
+}
+
+async function approveDraft(id) {
+  await saveDraftEdit(id);
+  const res = await apiFetch(`/api/mail-drafts/${id}/approve`, 'POST');
+  if (res?.success) {
+    showToast(res.auto_send_enabled ? 'Gesendet — Autopilot ist jetzt scharf geschaltet! 🚀' : 'Mail versendet');
+    renderMailDrafts();
+    loadCounts();
+  } else {
+    showToast(res?.error || 'Fehler beim Senden', 'error');
+  }
+}
+
+async function rejectDraft(id) {
+  const res = await apiFetch(`/api/mail-drafts/${id}/reject`, 'POST');
+  if (res?.success) {
+    showToast('Entwurf verworfen');
+    renderMailDrafts();
+    loadCounts();
+  } else {
+    showToast(res?.error || 'Fehler', 'error');
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 async function loadSettings() {
@@ -3204,14 +3350,23 @@ async function loadSettings() {
 
 async function loadCounts() {
   const counts = await apiFetch('/api/counts');
-  if (!counts) return;
-  ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash'].forEach(cat => {
-    const el = document.getElementById(`badge-${cat}`);
-    if (el) {
-      el.textContent = counts[cat] || 0;
-      el.style.display = counts[cat] ? 'inline-block' : 'none';
-    }
-  });
+  if (counts) {
+    ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash'].forEach(cat => {
+      const el = document.getElementById(`badge-${cat}`);
+      if (el) {
+        el.textContent = counts[cat] || 0;
+        el.style.display = counts[cat] ? 'inline-block' : 'none';
+      }
+    });
+  }
+
+  const draftData = await apiFetch('/api/mail-drafts');
+  const draftBadge = document.getElementById('badge-mail_drafts');
+  if (draftBadge && draftData) {
+    const n = draftData.drafts?.length || 0;
+    draftBadge.textContent = n;
+    draftBadge.style.display = n ? 'inline-block' : 'none';
+  }
 }
 
 async function apiFetch(url, method = 'GET', body = null) {

@@ -125,6 +125,33 @@ def get_station_today(station_id):
 
 
 # ──────────────────────────────────────────────
+# DASHBOARD / API
+# ──────────────────────────────────────────────
+
+def get_device_info():
+    """Kompakte Echtzeit-Übersicht der ersten Anlage für die /api/solar/status Route."""
+    cfg = _get_config()
+    if not all([cfg['app_id'], cfg['app_secret'], cfg['email']]):
+        return None
+    stations = get_stations()
+    if not stations:
+        return None
+    st = stations[0]
+    st_id = st.get('id') or st.get('stationId')
+    name = st.get('name', 'Anlage')
+    rt = get_station_realtime(st_id) if st_id else None
+    if not rt:
+        return {'name': name, 'connected': False}
+    return {
+        'name': name,
+        'connected': True,
+        'power_w': float(rt.get('generationPower') or 0),
+        'total_kwh': float(rt.get('generationTotal') or 0),
+        'last_update': rt.get('lastUpdateTime')
+    }
+
+
+# ──────────────────────────────────────────────
 # SIGGI KONTEXT
 # ──────────────────────────────────────────────
 
