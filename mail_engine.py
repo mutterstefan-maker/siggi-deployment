@@ -341,7 +341,11 @@ def ai_categorize_and_reply(from_addr, subject, body, category, settings, is_aut
     except:
         pass
 
-    system_prompt = f"""{ai_character}{knowledge_context}{spam_instruction}{new_customer_hint}{few_shot_examples}
+    _wochentage = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+    _jetzt = datetime.now()
+    datum_zeit_context = f"\n\nAKTUELLES DATUM/UHRZEIT: {_wochentage[_jetzt.weekday()]}, {_jetzt.strftime('%d.%m.%Y %H:%M')} Uhr"
+
+    system_prompt = f"""{ai_character}{knowledge_context}{spam_instruction}{new_customer_hint}{few_shot_examples}{datum_zeit_context}
 
 Antworte NUR mit JSON (kein Markdown):
 {{

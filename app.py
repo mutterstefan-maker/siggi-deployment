@@ -347,7 +347,10 @@ def generate_ai_reply(subject, body, settings):
             print("⚠️  Kein API-Key in settings.json!")
             return None
 
+        wochentage = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+        jetzt = datetime.now()
         system_prompt = settings.get('ai_character', 'Du bist SIGGI')
+        system_prompt += f"\n\nAKTUELLES DATUM/UHRZEIT: {wochentage[jetzt.weekday()]}, {jetzt.strftime('%d.%m.%Y %H:%M')} Uhr"
         system_prompt += f"\n\nANWEISUNG: Antworte auf diese E-Mail kurz und professionell. Schreib deine Antwort und fertig - KEINE Signatur!"
 
         print(f"🤖 KI-Antwort wird generiert für: {subject[:50]}")
@@ -360,7 +363,7 @@ def generate_ai_reply(subject, body, settings):
                 'anthropic-version': '2023-06-01'
             },
             json={
-                'model': 'claude-opus-4-1-20250805',
+                'model': 'claude-sonnet-4-5-20250929',
                 'max_tokens': 250,
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': f'Subject: {subject}\n\n{body}'}]
@@ -829,8 +832,11 @@ def jarvis_chat():
         counts = query_db('SELECT COUNT(*) as c FROM mails WHERE category=? AND deleted=0 AND read=0', ('inbox',), one=True)
         inbox_count = counts['c'] if counts else 0
 
+        wochentage = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+        jetzt = datetime.now()
         system_prompt = settings.get('ai_character', 'Du bist SIGGI')
-        system_prompt += f"\n\nAKTUELL: {inbox_count} ungelesene Mails\n"
+        system_prompt += f"\n\nAKTUELLES DATUM/UHRZEIT: {wochentage[jetzt.weekday()]}, {jetzt.strftime('%d.%m.%Y %H:%M')} Uhr\n"
+        system_prompt += f"AKTUELL: {inbox_count} ungelesene Mails\n"
         system_prompt += get_instructions()  # Wichtige Anweisungen (Chat-Regex)
         system_prompt += "\n" + memory_engine.get_memory_context()  # Dauerhaftes Gedächtnis
         system_prompt += "\n" + memory_engine.get_upcoming_reminders()
@@ -858,7 +864,7 @@ def jarvis_chat():
                 'https://api.anthropic.com/v1/messages',
                 headers=headers,
                 json={
-                    'model': 'claude-opus-4-1-20250805',
+                    'model': 'claude-sonnet-4-5-20250929',
                     'max_tokens': 400,
                     'system': system_prompt,
                     'tools': SIGGI_TOOLS,
